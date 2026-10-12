@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2346c8">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Vokabeltrainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Layout : une colonne étroite posée sur du papier quadrillé de cahier d'école (Karopapier), deux onglets */
+:root {
+  --paper: #f3f6fa;
+  --grid: #dbe4ef;
+  --card: #ffffff;
+  --ink: #1d2a44;
+  --muted: #5b6780;
+  --accent: #2346c8;
+  --accent-ink: #ffffff;
+  --highlight: #ffe36e;
+  --good: #1f8a4c;
+  --good-bg: #e3f5ea;
+  --bad: #c0392b;
+  --bad-bg: #fbe7e4;
+  --line: #cfd8e6;
+  --font-display: "Fredoka", "Trebuchet MS", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #121826; --grid: #1c2436; --card: #1a2233; --ink: #e8edf7; --muted: #9aa6bf;
+    --accent: #7d97ff; --accent-ink: #0d1424; --highlight: #e8c84a;
+    --good: #5fd18f; --good-bg: #16301f; --bad: #ff8a7a; --bad-bg: #3a1c19; --line: #2d3850;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #121826; --grid: #1c2436; --card: #1a2233; --ink: #e8edf7; --muted: #9aa6bf;
+  --accent: #7d97ff; --accent-ink: #0d1424; --highlight: #e8c84a;
+  --good: #5fd18f; --good-bg: #16301f; --bad: #ff8a7a; --bad-bg: #3a1c19; --line: #2d3850;
+  color-scheme: dark;
+}
+
+html, body { min-height: 100%; }
+body {
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 22px 22px;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 1.05rem;
+  line-height: 1.5;
+  padding-inline: 16px;
+  padding-block: 32px 48px;
+}
+.wrap { max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: 1.9rem; margin: 0; letter-spacing: 0.01em; }
+h1 .de { color: var(--accent); }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 1.35rem; margin: 0; }
+.progress { font-size: 0.95rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.progress strong { color: var(--ink); }
+
+.tabs { display: flex; gap: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 5px; }
+.tab {
+  flex: 1; font-family: var(--font-display); font-weight: 500; font-size: 1.05rem;
+  border: none; background: transparent; color: var(--muted); border-radius: 10px; padding: 10px 12px; cursor: pointer; min-height: 44px;
+}
+.tab[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
+.tab:focus-visible { outline: 3px solid var(--highlight); outline-offset: 2px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 28px 24px;
+  display: flex; flex-direction: column; gap: 22px;
+  box-shadow: 0 10px 30px -18px rgba(29, 42, 68, 0.35);
+}
+.lang {
+  font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+  display: flex; align-items: center; gap: 8px;
+}
+.flag { display: inline-block; width: 18px; height: 12px; border-radius: 2px; overflow: hidden; flex: none; }
+.flag.de-flag { background: linear-gradient(#000 0 33.3%, #dd0000 33.3% 66.6%, #ffce00 66.6%); }
+.flag.en-flag { background: #012169; position: relative; }
+.flag.en-flag::before { content: ""; position: absolute; inset: 0; background: linear-gradient(#fff 0 0) center / 100% 30% no-repeat, linear-gradient(#fff 0 0) center / 30% 100% no-repeat; }
+.flag.en-flag::after { content: ""; position: absolute; inset: 0; background: linear-gradient(#c8102e 0 0) center / 100% 14% no-repeat, linear-gradient(#c8102e 0 0) center / 14% 100% no-repeat; }
+
+.tag {
+  margin-left: auto; font-size: 0.72rem; letter-spacing: 0.06em; font-weight: 700;
+  border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+  background: var(--paper); color: var(--muted); border: 1px solid var(--line);
+}
+.tag.review, .tag.retry { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
+.tag.new { background: var(--highlight); color: #1d2a44; border-color: transparent; }
+.words .tag { margin-left: 8px; font-size: 0.66rem; padding: 2px 8px; text-transform: uppercase; vertical-align: 2px; }
+
+.word {
+  font-family: var(--font-display); font-weight: 600;
+  font-size: clamp(2rem, 8vw, 2.8rem); line-height: 1.15; margin: 6px 0 0;
+  text-wrap: balance; overflow-wrap: anywhere;
+}
+.word mark { background: linear-gradient(transparent 60%, var(--highlight) 60%); color: inherit; padding: 0 2px; }
+
+.steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 0.98rem; }
+.steps li { display: flex; gap: 10px; align-items: baseline; }
+.steps b { font-family: var(--font-display); color: var(--accent); min-width: 1.2em; }
+
+form { display: flex; flex-direction: column; gap: 12px; }
+label.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+label.field { font-weight: 700; font-size: 0.95rem; }
+.hint { color: var(--muted); font-size: 0.92rem; margin: 0; }
+.hint code { font-family: inherit; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--ink); }
+input[type="text"], textarea {
+  font: inherit; color: var(--ink); background: var(--paper);
+  border: 2px solid var(--line); border-radius: 14px; padding: 14px 16px; width: 100%; box-sizing: border-box;
+}
+input[type="text"] { font-size: 1.35rem; }
+textarea { font-size: 1.05rem; min-height: 120px; resize: vertical; }
+input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--accent); }
+input[type="text"]:disabled { opacity: 0.75; }
+
+.btn {
+  font-family: var(--font-display); font-weight: 600; font-size: 1.2rem;
+  border: none; border-radius: 14px; padding: 14px 18px; cursor: pointer; min-height: 54px;
+  background: var(--accent); color: var(--accent-ink);
+  transition: transform 0.08s ease, filter 0.15s ease;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btn:focus-visible { outline: 3px solid var(--highlight); outline-offset: 2px; }
+
+.feedback { border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.feedback.good { background: var(--good-bg); color: var(--good); }
+.feedback.bad { background: var(--bad-bg); color: var(--bad); }
+.feedback .title { font-family: var(--font-display); font-weight: 600; font-size: 1.25rem; }
+.feedback .detail { color: var(--ink); }
+.feedback .answer { font-weight: 700; font-size: 1.2rem; color: var(--ink); }
+
+.listen {
+  align-self: flex-start; margin-top: 6px;
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-display); font-weight: 500; font-size: 1rem;
+  background: var(--card); color: var(--accent); border: 2px solid var(--accent);
+  border-radius: 999px; padding: 6px 14px 6px 10px; cursor: pointer; min-height: 40px;
+}
+.listen svg { width: 20px; height: 20px; flex: none; }
+.listen:hover { background: var(--accent); color: var(--accent-ink); }
+.listen:focus-visible { outline: 3px solid var(--highlight); outline-offset: 2px; }
+.listen.playing svg .wave { animation: pulse 0.9s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .listen.playing svg .wave { animation: none; } }
+
+#panel-lex { display: flex; flex-direction: column; gap: 20px; }
+select {
+  font: inherit; color: var(--ink); background: var(--paper);
+  border: 2px solid var(--line); border-radius: 14px; padding: 12px 14px; width: 100%; box-sizing: border-box; min-height: 50px;
+}
+select:focus { outline: none; border-color: var(--accent); }
+.check { display: flex; align-items: center; gap: 12px; cursor: pointer; font-weight: 700; }
+.check input { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+.check .hint { font-weight: 400; }
+#voice-card .field { margin-bottom: -14px; }
+
+.notice { border-radius: 14px; padding: 12px 14px; background: var(--paper); border: 1px solid var(--line); color: var(--muted); font-size: 0.95rem; }
+.notice.bad { background: var(--bad-bg); border-color: transparent; color: var(--bad); }
+.notice.good { background: var(--good-bg); border-color: transparent; color: var(--good); }
+
+.summary { text-align: center; align-items: center; }
+.summary .score { font-family: var(--font-display); font-weight: 600; font-size: 3rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.summary ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+
+.empty { text-align: center; align-items: center; color: var(--muted); }
+.empty p { margin: 0; max-width: 34ch; }
+
+.list-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.count { color: var(--muted); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.words { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.words li {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  padding: 10px 0; border-top: 1px solid var(--line);
+}
+.words li:first-child { border-top: none; }
+.words .w-de { font-weight: 700; overflow-wrap: anywhere; }
+.words .w-en { color: var(--muted); overflow-wrap: anywhere; }
+.del {
+  font: inherit; font-size: 0.9rem; border: 1px solid var(--line); background: transparent; color: var(--muted);
+  border-radius: 10px; padding: 6px 10px; cursor: pointer; min-height: 36px; white-space: nowrap;
+}
+.del:hover { color: var(--bad); border-color: var(--bad); }
+.del.confirm { background: var(--bad); border-color: var(--bad); color: #fff; }
+.del:focus-visible { outline: 3px solid var(--highlight); outline-offset: 2px; }
+.del.edit:hover { color: var(--accent); border-color: var(--accent); }
+.del.save { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.del.save:hover { color: var(--accent-ink); filter: brightness(1.08); }
+.del:disabled { opacity: 0.6; cursor: default; }
+.row-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+.words li.editing { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 14px 0; }
+.words li.editing .row-actions { grid-column: 1 / -1; }
+.words li.editing .row-error { grid-column: 1 / -1; color: var(--bad); font-size: 0.92rem; margin: 0; }
+.words input[type="text"] { font-size: 1rem; padding: 8px 10px; border-radius: 10px; border-width: 2px; }
+
+@media (max-width: 420px) {
+  .words li { grid-template-columns: minmax(0, 1fr) auto; }
+  .words .w-en { grid-column: 1; grid-row: 2; margin-top: -8px; }
+  .words .row-actions { grid-column: 2; grid-row: 1 / span 2; flex-direction: column; }
+  .words li.editing { grid-template-columns: minmax(0, 1fr); }
+  .words li.editing .row-actions { grid-column: 1; grid-row: auto; flex-direction: row; }
+}
+
+footer { font-size: 0.85rem; color: var(--muted); text-align: center; }
+
+@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+[hidden] { display: none !important; }
+body { margin: 0; }
+#source-notice { margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1><span class="de">Vokabel</span>trainer</h1>
+    <div class="progress" id="progress"></div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" id="tab-quiz" aria-selected="true" aria-controls="panel-quiz">S'entraîner</button>
+    <button class="tab" role="tab" id="tab-lex" aria-selected="false" aria-controls="panel-lex">Lexique</button>
+  </nav>
+
+  <div class="notice" id="source-notice" hidden></div>
+
+  <!-- Onglet « S'entraîner » -->
+  <section id="panel-quiz" role="tabpanel" aria-labelledby="tab-quiz">
+    <div class="card empty" id="loading">
+      <p>Chargement du lexique…</p>
+    </div>
+
+    <div class="card empty" id="empty" hidden>
+      <h2 id="empty-title">Le lexique est vide</h2>
+      <p id="empty-text">Ajoute des mots dans le Google Sheets pour commencer.</p>
+    </div>
+
+    <main class="card" id="quiz" hidden>
+      <div>
+        <div class="lang"><span class="flag de-flag" aria-hidden="true"></span>Deutsch<span class="tag" id="word-tag" hidden></span></div>
+        <p class="word" id="word"></p>
+      </div>
+
+      <ol class="steps">
+        <li><b>1</b><span>Dis le mot en anglais à voix haute.</span></li>
+        <li><b>2</b><span>Écris-le ci-dessous, puis vérifie.</span></li>
+        <li><b>3</b><span>Écoute la bonne prononciation et compare.</span></li>
+      </ol>
+
+      <form id="form" autocomplete="off">
+        <label class="sr" for="answer">Ta réponse en anglais</label>
+        <input type="text" id="answer" placeholder="En anglais…" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+        <button class="btn" type="submit" id="check">Vérifier</button>
+      </form>
+
+      <div id="feedback" hidden></div>
+      <button class="btn" type="button" id="next" hidden>Mot suivant →</button>
+    </main>
+
+    <main class="card summary" id="summary" hidden>
+      <div class="lang"><span class="flag en-flag" aria-hidden="true"></span>Tour terminé</div>
+      <div class="score" id="score"></div>
+      <div id="summary-text"></div>
+      <ul id="missed"></ul>
+      <button class="btn" type="button" id="restart">Recommencer</button>
+    </main>
+  </section>
+
+  <!-- Onglet « Lexique » -->
+  <section id="panel-lex" role="tabpanel" aria-labelledby="tab-lex" hidden>
+    <div class="card">
+      <div class="list-head">
+        <h2>Mots du lexique</h2>
+        <span class="count" id="lex-count"></span>
+      </div>
+      <p class="hint">Le lexique se modifie dans le Google Sheets. Un changement peut mettre quelques minutes à apparaître ici.</p>
+      <ul class="words" id="words"></ul>
+      <p class="hint" id="lex-empty" hidden>Aucun mot pour l'instant.</p>
+      <button class="btn" type="button" id="reload">Recharger le lexique</button>
+    </div>
+
+    <div class="card" id="voice-card" hidden>
+      <h2>Voix</h2>
+      <p class="hint">Réglage propre à cet appareil : chaque tablette ou ordinateur a ses propres voix.</p>
+      <label class="field" for="voice-select">Voix anglaise</label>
+      <select id="voice-select"></select>
+      <button class="btn" type="button" id="voice-test">Écouter un exemple</button>
+    </div>
+  </section>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+// ============================================================
+// RÉGLAGE : l'adresse CSV du Google Sheets publié
+// (Google Sheets > Fichier > Partager > Publier sur le Web > CSV).
+// Tant qu'elle est vide, la page utilise un lexique d'exemple.
+// ============================================================
+// Pas de « single=true » : cette variante du lien est restée figée sur une réponse vide chez Google.
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSsdqnXUCdTNow1rDbeW2W3kkBa2cQgG80bhRX-JyOEDIyW6yIigSQ0XOHNV4TzkjWF6Qb2KLo7UvRf/pub?gid=0&output=csv";
+
+const EXAMPLE_WORDS = [
+  ["Ball", "ball"], ["Strand", "beach"], ["gelb", "yellow"],
+  ["Schön dich kennen zu lernen", "Nice to meet you"], ["Woher kommst du?", "Where are you from?"],
+  ["Palast", "palace"], ["Himmel", "sky"],
+];
+
+const $ = (id) => document.getElementById(id);
+
+// Petites aides pour le stockage de l'appareil (peut être indisponible, ex. navigation privée).
+function readLocal(key, fallback) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; }
+}
+function writeLocal(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* stockage indisponible */ }
+}
+
+// ---------- État ----------
+let words = [];         // le lexique : [{ id, de, en }]
+let loaded = false;
+
+let quizState = "loading"; // loading | empty | playing | done
+let deck = [];          // les cartes du tour : [{ id, de, en, tag }], les mots ratés y sont rajoutés à la fin
+let roundSize = 0;      // nombre de mots différents dans le tour
+let index = 0;
+let correct = 0;
+let missed = [];
+
+// ---------- Onglets ----------
+function showTab(name) {
+  const quiz = name === "quiz";
+  $("tab-quiz").setAttribute("aria-selected", String(quiz));
+  $("tab-lex").setAttribute("aria-selected", String(!quiz));
+  $("panel-quiz").hidden = !quiz;
+  $("panel-lex").hidden = quiz;
+  if (quiz && (quizState === "empty" || quizState === "done")) startRound();
+}
+$("tab-quiz").addEventListener("click", () => showTab("quiz"));
+$("tab-lex").addEventListener("click", () => showTab("lex"));
+
+// ---------- Chargement du lexique depuis le Google Sheets ----------
+const CACHE_KEY = "vokabeltrainer-words";
+
+// Lit un CSV en gérant les guillemets (une cellule peut contenir une virgule : "Schön, dich kennenzulernen").
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = "", quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else cell += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ",") { row.push(cell); cell = ""; }
+    else if (c === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+    else if (c !== "\r") cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+// Colonne A = allemand, colonne B = anglais, la première ligne contient les titres.
+function rowsToWords(rows) {
+  const seen = new Set();
+  const list = [];
+  for (const [de = "", en = ""] of rows.slice(1)) {
+    const d = de.trim(), e = en.trim();
+    if (!d || !e) continue;
+    const id = d.toLowerCase();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    list.push({ id, de: d, en: e });
+  }
+  return list;
+}
+
+function setNotice(kind, text) {
+  const box = $("source-notice");
+  box.className = "notice " + kind;
+  box.textContent = text;
+  box.hidden = !text;
+}
+
+async function loadWords() {
+  if (!SHEET_CSV_URL) {
+    words = EXAMPLE_WORDS.map(([de, en]) => ({ id: de.toLowerCase(), de, en }));
+    setNotice("", "Lexique d'exemple : le Google Sheets n'est pas encore relié à la page.");
+    return;
+  }
+  try {
+    // Google renvoie parfois un fichier totalement vide (même sans la ligne de titres), notamment
+    // au premier appel d'une adresse jamais demandée : on ne doit donc pas ajouter de paramètre
+    // anti-cache à l'adresse, et on réessaie une fois avant de croire à un vrai problème.
+    let text = "";
+    for (let attempt = 0; attempt < 2 && !text.trim(); attempt++) {
+      if (attempt) await new Promise((resolve) => setTimeout(resolve, 2000));
+      const res = await fetch(SHEET_CSV_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      text = await res.text();
+    }
+    if (!text.trim()) throw new Error("Réponse vide");
+    words = rowsToWords(parseCsv(text));
+    writeLocal(CACHE_KEY, words);
+    setNotice("", "");
+  } catch (e) {
+    const cached = readLocal(CACHE_KEY, null);
+    if (cached && cached.length) {
+      words = cached;
+      setNotice("", "Pas de connexion : la page utilise la dernière version du lexique enregistrée sur cet appareil.");
+    } else {
+      words = [];
+      setNotice("bad", "Impossible de charger le lexique. Vérifie la connexion internet, puis recharge la page.");
+    }
+  }
+}
+
+async function reload() {
+  $("reload").disabled = true;
+  $("reload").textContent = "Chargement…";
+  await loadWords();
+  loaded = true;
+  renderLexique();
+  if (quizState !== "playing") startRound();
+  $("reload").disabled = false;
+  $("reload").textContent = "Recharger le lexique";
+}
+$("reload").addEventListener("click", reload);
+
+// ---------- Entraînement ----------
+
+// Compare sans tenir compte des majuscules, de la ponctuation, des espaces en trop
+// ni de l'article au début (« ball » = « the ball »).
+function normalize(text) {
+  return text
+    .toLowerCase()
+    .replace(/[’`]/g, "'")
+    .replace(/[^a-z0-9' ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(the|a|an) /, "");
+}
+
+function shuffle(list) {
+  const copy = list.slice();
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+// ---------- Prononciation ----------
+// La voix de synthèse du navigateur lit le mot anglais. On préfère l'anglais britannique,
+// celui qu'on apprend en général à l'école en Allemagne, sinon n'importe quelle voix anglaise.
+const canSpeak = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+const SPEAKER_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path class="wave" d="M16.5 8.5a5 5 0 0 1 0 7"/><path class="wave" d="M19.5 5.5a9 9 0 0 1 0 13"/></svg>';
+// Réglages de voix : propres à chaque appareil, puisque chaque appareil a ses propres voix.
+const VOICE_KEY = "vokabeltrainer-voice";
+const CHILD_NAME = /junior|kid|child|boy|girl/i;
+let voiceSettings = { voiceURI: "" };
+try { voiceSettings = { ...voiceSettings, ...JSON.parse(localStorage.getItem(VOICE_KEY) || "{}") }; } catch (e) { /* stockage indisponible */ }
+let englishVoices = [];
+
+function saveVoiceSettings() {
+  try { localStorage.setItem(VOICE_KEY, JSON.stringify(voiceSettings)); } catch (e) { /* stockage indisponible */ }
+}
+
+function loadVoices() {
+  const rank = (v) => (CHILD_NAME.test(v.name) ? 0 : v.lang === "en-GB" ? 1 : 2);
+  englishVoices = window.speechSynthesis.getVoices()
+    .filter((v) => v.lang && v.lang.toLowerCase().startsWith("en"))
+    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  renderVoiceSettings();
+}
+
+// La voix utilisée : celle choisie dans les réglages, sinon une voix britannique, sinon une voix anglaise.
+function currentVoice() {
+  return englishVoices.find((v) => v.voiceURI === voiceSettings.voiceURI)
+    || englishVoices.find((v) => v.lang === "en-GB" && v.localService)
+    || englishVoices.find((v) => v.lang === "en-GB")
+    || englishVoices[0]
+    || null;
+}
+
+function renderVoiceSettings() {
+  $("voice-card").hidden = !canSpeak;
+  if (!canSpeak) return;
+  const select = $("voice-select");
+  select.innerHTML = "";
+  const auto = document.createElement("option");
+  auto.value = "";
+  auto.textContent = "Automatique (anglais britannique)";
+  select.append(auto);
+  for (const v of englishVoices) {
+    const opt = document.createElement("option");
+    opt.value = v.voiceURI;
+    opt.textContent = `${v.name} (${v.lang})${CHILD_NAME.test(v.name) ? " · voix d'enfant" : ""}`;
+    select.append(opt);
+  }
+  select.value = englishVoices.some((v) => v.voiceURI === voiceSettings.voiceURI) ? voiceSettings.voiceURI : "";
+}
+
+if (canSpeak) {
+  loadVoices();
+  window.speechSynthesis.addEventListener?.("voiceschanged", loadVoices);
+  $("voice-select").addEventListener("change", (e) => { voiceSettings.voiceURI = e.target.value; saveVoiceSettings(); });
+  $("voice-test").addEventListener("click", () => speak("Nice to meet you! Where are you from?"));
+}
+
+function speak(text, button) {
+  if (!canSpeak) return;
+  window.speechSynthesis.cancel();
+  const voice = currentVoice();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = voice ? voice.lang : "en-GB";
+  if (voice) utterance.voice = voice;
+  utterance.rate = 0.85; // un peu plus lent que la normale, pour bien entendre
+  if (button) {
+    button.classList.add("playing");
+    const stop = () => button.classList.remove("playing");
+    utterance.onend = stop;
+    utterance.onerror = stop;
+  }
+  window.speechSynthesis.speak(utterance);
+}
+
+function showQuizCard(which) {
+  for (const id of ["loading", "empty", "quiz", "summary"]) $(id).hidden = id !== which;
+}
+
+
+// ---------- Suivi des résultats ----------
+// Enregistré sur cet appareil. Pour chaque mot : { streak: bonnes réponses d'affilée,
+// misses: erreurs au total, lastOk: la dernière réponse était-elle juste ? }.
+// Seul le premier essai de chaque tour compte.
+const PROGRESS_KEY = "vokabeltrainer-progress";
+let progress = readLocal(PROGRESS_KEY, {});
+
+function recordResult(wordId, ok) {
+  const p = progress[wordId] || { streak: 0, misses: 0, lastOk: null };
+  progress[wordId] = ok
+    ? { streak: p.streak + 1, misses: p.misses, lastOk: true }
+    : { streak: 0, misses: p.misses + 1, lastOk: false };
+  writeLocal(PROGRESS_KEY, progress);
+  renderLexique();
+}
+
+// « review » = raté la dernière fois, « new » = jamais vu, « known » = réussi la dernière fois.
+function wordStatus(wordId) {
+  const p = progress[wordId];
+  if (!p || p.lastOk === null) return "new";
+  return p.lastOk ? "known" : "review";
+}
+
+// L'ordre d'un tour : d'abord les mots ratés la dernière fois, puis les nouveaux,
+// puis les autres, les moins bien maîtrisés en premier. Mélangé à l'intérieur de chaque groupe.
+function buildDeck() {
+  const review = shuffle(words.filter((w) => wordStatus(w.id) === "review"));
+  const fresh = shuffle(words.filter((w) => wordStatus(w.id) === "new"));
+  const known = shuffle(words.filter((w) => wordStatus(w.id) === "known"))
+    .sort((a, b) => progress[a.id].streak - progress[b.id].streak);
+  return [
+    ...review.map((w) => ({ id: w.id, de: w.de, en: w.en, tag: "review" })),
+    ...fresh.map((w) => ({ id: w.id, de: w.de, en: w.en, tag: "new" })),
+    ...known.map((w) => ({ id: w.id, de: w.de, en: w.en, tag: null })),
+  ];
+}
+
+const TAG_LABELS = { review: "À revoir", new: "Nouveau", retry: "Deuxième essai" };
+
+function updateProgress() {
+  if (quizState === "playing") {
+    $("progress").innerHTML = `Mot <strong>${index + 1}</strong> sur ${deck.length} · ${correct} juste${correct > 1 ? "s" : ""}`;
+  } else if (quizState === "done") {
+    $("progress").textContent = "Tour terminé";
+  } else {
+    $("progress").textContent = "";
+  }
+}
+
+function startRound() {
+  if (!loaded) return;
+  if (words.length === 0) {
+    quizState = "empty";
+    $("empty-text").textContent = "Ajoute des mots dans le Google Sheets, puis recharge la page.";
+    showQuizCard("empty");
+    updateProgress();
+    return;
+  }
+  deck = buildDeck();
+  roundSize = deck.length;
+  index = 0;
+  correct = 0;
+  missed = [];
+  quizState = "playing";
+  showQuizCard("quiz");
+  showWord();
+}
+
+function showWord() {
+  if (canSpeak) window.speechSynthesis.cancel();
+  const card = deck[index];
+  $("word").innerHTML = "<mark></mark>";
+  $("word").firstChild.textContent = card.de;
+  const tag = $("word-tag");
+  tag.className = "tag " + (card.tag || "");
+  tag.textContent = TAG_LABELS[card.tag] || "";
+  tag.hidden = !card.tag;
+  $("answer").value = "";
+  $("answer").disabled = false;
+  $("check").hidden = false;
+  $("feedback").hidden = true;
+  $("next").hidden = true;
+  updateProgress();
+  if (!$("panel-quiz").hidden) $("answer").focus({ preventScroll: true });
+}
+
+function check(event) {
+  event.preventDefault();
+  const typed = $("answer").value;
+  if (!typed.trim()) { $("answer").focus(); return; }
+
+  const card = deck[index];
+  const { de, en } = card;
+  const ok = normalize(typed) === normalize(en);
+  const firstTry = card.tag !== "retry";
+  if (firstTry) {
+    recordResult(card.id, ok);
+    if (ok) {
+      correct++;
+    } else {
+      missed.push([de, en]);
+      // Un mot raté revient une fois à la fin du tour.
+      deck.push({ id: card.id, de, en, tag: "retry" });
+    }
+  }
+
+  const box = $("feedback");
+  box.className = "feedback " + (ok ? "good" : "bad");
+  box.innerHTML = ok
+    ? `<span class="title">Bravo !</span><span class="detail">C'est bien <span class="answer"></span>.</span>`
+    : `<span class="title">Pas tout à fait</span><span class="detail">La bonne réponse : <span class="answer"></span></span><span class="detail">Tu as écrit : <em class="typed"></em></span>`;
+  box.querySelector(".answer").textContent = en;
+  if (!ok) box.querySelector(".typed").textContent = typed.trim();
+  if (!ok && firstTry) {
+    const later = document.createElement("span");
+    later.className = "detail";
+    later.textContent = "Ce mot reviendra à la fin du tour.";
+    box.appendChild(later);
+  }
+  if (canSpeak) {
+    const listen = document.createElement("button");
+    listen.type = "button";
+    listen.className = "listen";
+    listen.innerHTML = SPEAKER_ICON + "<span>Réécouter</span>";
+    listen.addEventListener("click", () => speak(en, listen));
+    box.appendChild(listen);
+    speak(en, listen); // le clic sur « Vérifier » autorise le son : on prononce tout de suite
+  }
+  box.hidden = false;
+
+  $("answer").disabled = true;
+  $("check").hidden = true;
+  $("next").textContent = index + 1 < deck.length ? "Mot suivant →" : "Voir mon score";
+  $("next").hidden = false;
+  $("next").focus();
+  updateProgress();
+}
+
+function next() {
+  index++;
+  if (index < deck.length) { showWord(); return; }
+
+  quizState = "done";
+  showQuizCard("summary");
+  $("score").textContent = `${correct} / ${roundSize}`;
+  $("summary-text").textContent = missed.length === 0
+    ? "Tout juste du premier coup, super travail !"
+    : `Juste${correct > 1 ? "s" : ""} du premier coup. Ces mots reviendront en premier au prochain tour :`;
+  const list = $("missed");
+  list.innerHTML = "";
+  missed.forEach(([de, en]) => {
+    const li = document.createElement("li");
+    li.textContent = `${de} → ${en}`;
+    list.appendChild(li);
+  });
+  updateProgress();
+  $("restart").focus();
+}
+
+$("form").addEventListener("submit", check);
+$("next").addEventListener("click", next);
+$("restart").addEventListener("click", startRound);
+
+// ---------- Lexique ----------
+function renderLexique() {
+  $("lex-count").textContent = `${words.length} mot${words.length > 1 ? "s" : ""}`;
+  $("lex-empty").hidden = words.length > 0;
+  $("footer").textContent = loaded ? `${words.length} mot${words.length > 1 ? "s" : ""} dans le lexique` : "";
+
+  const list = $("words");
+  list.innerHTML = "";
+  for (const w of words) {
+    const li = document.createElement("li");
+    li.style.gridTemplateColumns = "minmax(0, 1fr) minmax(0, 1fr)";
+    const de = document.createElement("span");
+    de.className = "w-de";
+    de.textContent = w.de;
+    const status = wordStatus(w.id);
+    if (status !== "known") {
+      const chip = document.createElement("span");
+      chip.className = "tag " + status;
+      chip.textContent = TAG_LABELS[status];
+      de.append(chip);
+    }
+    const en = document.createElement("span");
+    en.className = "w-en";
+    en.textContent = w.en;
+    li.append(de, en);
+    list.appendChild(li);
+  }
+}
+
+// ---------- Démarrage ----------
+async function init() {
+  await loadWords();
+  loaded = true;
+  renderLexique();
+  startRound();
+}
+
+init();
+</script>
+</body>
+</html>
