@@ -161,6 +161,43 @@ input[type="text"]:disabled { opacity: 0.75; }
 @media (prefers-reduced-motion: reduce) { .listen.playing svg .wave { animation: none; } }
 
 #panel-lex { display: flex; flex-direction: column; gap: 20px; }
+#panel-quiz { display: flex; flex-direction: column; gap: 14px; }
+
+.modes { display: flex; gap: 8px; flex-wrap: wrap; }
+.mode {
+  flex: 1 1 0; min-width: 0; font-family: var(--font-body); font-weight: 700; font-size: 0.95rem;
+  background: var(--card); color: var(--muted); border: 2px solid var(--line);
+  border-radius: 999px; padding: 8px 14px; cursor: pointer; min-height: 44px;
+}
+.mode[aria-checked="true"] { border-color: var(--accent); color: var(--accent); }
+.mode:focus-visible { outline: 3px solid var(--highlight); outline-offset: 2px; }
+.mode-count {
+  display: inline-block; min-width: 1.6em; margin-left: 4px; padding: 0 6px; border-radius: 999px;
+  background: var(--paper); color: var(--ink); font-variant-numeric: tabular-nums;
+}
+
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.stat { background: var(--paper); border-radius: 14px; padding: 12px; text-align: center; }
+.stat b { display: block; font-family: var(--font-display); font-size: 1.8rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 0.85rem; color: var(--muted); }
+.stat.mastered b { color: var(--good); }
+.stat.review b { color: var(--bad); }
+
+h3.sub { font-family: var(--font-display); font-weight: 600; font-size: 1.1rem; margin: 0 0 6px; }
+.mistakes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.mistakes li { padding: 10px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+.mistakes li:first-child { border-top: none; }
+.mistakes .m-word { font-weight: 700; overflow-wrap: anywhere; }
+.mistakes .m-word .m-en { color: var(--good); }
+.mistakes .m-typed { color: var(--bad); font-size: 0.95rem; overflow-wrap: anywhere; }
+.mistakes .m-count { color: var(--muted); font-size: 0.85rem; }
+
+.dots { grid-column: 1 / -1; display: flex; align-items: center; gap: 4px; margin-top: -4px; color: var(--muted); font-size: 0.8rem; }
+.dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); display: inline-block; }
+.dots i.on { background: var(--good); }
+.dots span { margin-left: 4px; }
+.tag.mastered { background: var(--good-bg); color: var(--good); border-color: transparent; }
+.summary .typed-wrong { color: var(--bad); }
 select {
   font: inherit; color: var(--ink); background: var(--paper);
   border: 2px solid var(--line); border-radius: 14px; padding: 12px 14px; width: 100%; box-sizing: border-box; min-height: 50px;
@@ -243,6 +280,11 @@ body { margin: 0; }
 
   <!-- Onglet « S'entraîner » -->
   <section id="panel-quiz" role="tabpanel" aria-labelledby="tab-quiz">
+    <div class="modes" role="radiogroup" aria-label="Type de tour">
+      <button class="mode" type="button" role="radio" id="mode-all" aria-checked="true">Tout le lexique <span class="mode-count" id="count-all"></span></button>
+      <button class="mode" type="button" role="radio" id="mode-review" aria-checked="false">Mots à revoir <span class="mode-count" id="count-review"></span></button>
+    </div>
+
     <div class="card empty" id="loading">
       <p>Chargement du lexique…</p>
     </div>
@@ -250,6 +292,7 @@ body { margin: 0; }
     <div class="card empty" id="empty" hidden>
       <h2 id="empty-title">Le lexique est vide</h2>
       <p id="empty-text">Ajoute des mots dans le Google Sheets pour commencer.</p>
+      <button class="btn" type="button" id="empty-action" hidden>Faire un tour complet</button>
     </div>
 
     <main class="card" id="quiz" hidden>
@@ -285,6 +328,16 @@ body { margin: 0; }
 
   <!-- Onglet « Lexique » -->
   <section id="panel-lex" role="tabpanel" aria-labelledby="tab-lex" hidden>
+    <div class="card">
+      <h2>Où j'en suis</h2>
+      <div class="stats" id="stats"></div>
+      <p class="hint">Un mot est maîtrisé après 3 bonnes réponses d'affilée. Résultats enregistrés sur cet appareil.</p>
+      <div id="mistakes-block" hidden>
+        <h3 class="sub">Mes fautes</h3>
+        <ul class="mistakes" id="mistakes"></ul>
+      </div>
+    </div>
+
     <div class="card">
       <div class="list-head">
         <h2>Mots du lexique</h2>
@@ -439,6 +492,7 @@ async function reload() {
   await loadWords();
   loaded = true;
   renderLexique();
+  renderModes();
   if (quizState !== "playing") startRound();
   $("reload").disabled = false;
   $("reload").textContent = "Recharger le lexique";
@@ -457,6 +511,15 @@ function normalize(text) {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^(the|a|an) /, "");
+}
+
+// Plusieurs traductions acceptées si elles sont séparées par « / » dans le tableau : « beach / seaside ».
+function alternatives(en) {
+  return en.split("/").map((alt) => alt.trim()).filter(Boolean);
+}
+
+function isCorrect(typed, en) {
+  return alternatives(en).some((alt) => normalize(typed) === normalize(alt));
 }
 
 function shuffle(list) {
@@ -549,42 +612,80 @@ function showQuizCard(which) {
 
 // ---------- Suivi des résultats ----------
 // Enregistré sur cet appareil. Pour chaque mot : { streak: bonnes réponses d'affilée,
-// misses: erreurs au total, lastOk: la dernière réponse était-elle juste ? }.
-// Seul le premier essai de chaque tour compte.
+// misses: erreurs au total, lastOk: la dernière réponse était-elle juste ?, wrong: dernières
+// réponses fausses }. Seul le premier essai de chaque tour compte dans le score du mot.
 const PROGRESS_KEY = "vokabeltrainer-progress";
+const MASTERY_STREAK = 3;
+const MAX_WRONG_KEPT = 5;
 let progress = readLocal(PROGRESS_KEY, {});
 
 function recordResult(wordId, ok) {
-  const p = progress[wordId] || { streak: 0, misses: 0, lastOk: null };
+  const p = progress[wordId] || { streak: 0, misses: 0, lastOk: null, wrong: [] };
   progress[wordId] = ok
-    ? { streak: p.streak + 1, misses: p.misses, lastOk: true }
-    : { streak: 0, misses: p.misses + 1, lastOk: false };
+    ? { ...p, streak: p.streak + 1, lastOk: true }
+    : { ...p, streak: 0, misses: p.misses + 1, lastOk: false };
   writeLocal(PROGRESS_KEY, progress);
-  renderLexique();
 }
 
-// « review » = raté la dernière fois, « new » = jamais vu, « known » = réussi la dernière fois.
+// Garde les dernières fautes différentes, la plus récente en premier.
+function recordWrongAnswer(wordId, typed) {
+  const p = progress[wordId] || { streak: 0, misses: 0, lastOk: null, wrong: [] };
+  const wrong = [typed, ...(p.wrong || []).filter((t) => normalize(t) !== normalize(typed))].slice(0, MAX_WRONG_KEPT);
+  progress[wordId] = { ...p, wrong };
+  writeLocal(PROGRESS_KEY, progress);
+}
+
+// « review » = raté la dernière fois, « new » = jamais vu, « learning » = réussi mais pas encore
+// 3 fois d'affilée, « mastered » = réussi au moins 3 fois d'affilée.
 function wordStatus(wordId) {
   const p = progress[wordId];
   if (!p || p.lastOk === null) return "new";
-  return p.lastOk ? "known" : "review";
+  if (!p.lastOk) return "review";
+  return p.streak >= MASTERY_STREAK ? "mastered" : "learning";
 }
 
-// L'ordre d'un tour : d'abord les mots ratés la dernière fois, puis les nouveaux,
-// puis les autres, les moins bien maîtrisés en premier. Mélangé à l'intérieur de chaque groupe.
+function isMastered(word) {
+  return wordStatus(word.id) === "mastered";
+}
+
+// ---------- Type de tour ----------
+const MODE_KEY = "vokabeltrainer-mode";
+let mode = readLocal(MODE_KEY, "all") === "review" ? "review" : "all"; // all | review
+
+function setMode(next) {
+  mode = next;
+  writeLocal(MODE_KEY, mode);
+  renderModes();
+  startRound();
+}
+
+function renderModes() {
+  $("mode-all").setAttribute("aria-checked", String(mode === "all"));
+  $("mode-review").setAttribute("aria-checked", String(mode === "review"));
+  $("count-all").textContent = words.length;
+  $("count-review").textContent = words.filter((w) => !isMastered(w)).length;
+}
+$("mode-all").addEventListener("click", () => setMode("all"));
+$("mode-review").addEventListener("click", () => setMode("review"));
+$("empty-action").addEventListener("click", () => setMode("all"));
+
+// L'ordre d'un tour : d'abord les mots ratés la dernière fois, puis les nouveaux, puis ceux en cours
+// d'apprentissage (les moins sûrs en premier), puis les mots maîtrisés. Mélangé dans chaque groupe.
+// Le tour « Mots à revoir » laisse de côté les mots maîtrisés.
 function buildDeck() {
-  const review = shuffle(words.filter((w) => wordStatus(w.id) === "review"));
-  const fresh = shuffle(words.filter((w) => wordStatus(w.id) === "new"));
-  const known = shuffle(words.filter((w) => wordStatus(w.id) === "known"))
-    .sort((a, b) => progress[a.id].streak - progress[b.id].streak);
+  const pool = mode === "review" ? words.filter((w) => !isMastered(w)) : words;
+  const group = (status) => shuffle(pool.filter((w) => wordStatus(w.id) === status));
+  const learning = group("learning").sort((a, b) => progress[a.id].streak - progress[b.id].streak);
+  const toCard = (tag) => (w) => ({ id: w.id, de: w.de, en: w.en, tag });
   return [
-    ...review.map((w) => ({ id: w.id, de: w.de, en: w.en, tag: "review" })),
-    ...fresh.map((w) => ({ id: w.id, de: w.de, en: w.en, tag: "new" })),
-    ...known.map((w) => ({ id: w.id, de: w.de, en: w.en, tag: null })),
+    ...group("review").map(toCard("review")),
+    ...group("new").map(toCard("new")),
+    ...learning.map(toCard(null)),
+    ...group("mastered").map(toCard(null)),
   ];
 }
 
-const TAG_LABELS = { review: "À revoir", new: "Nouveau", retry: "Deuxième essai" };
+const TAG_LABELS = { review: "À revoir", new: "Nouveau", retry: "Deuxième essai", mastered: "Maîtrisé" };
 
 function updateProgress() {
   if (quizState === "playing") {
@@ -596,16 +697,30 @@ function updateProgress() {
   }
 }
 
+function showEmpty(title, text, withAction) {
+  quizState = "empty";
+  $("empty-title").textContent = title;
+  $("empty-text").textContent = text;
+  $("empty-action").hidden = !withAction;
+  showQuizCard("empty");
+  updateProgress();
+}
+
 function startRound() {
   if (!loaded) return;
   if (words.length === 0) {
-    quizState = "empty";
-    $("empty-text").textContent = "Ajoute des mots dans le Google Sheets, puis recharge la page.";
-    showQuizCard("empty");
-    updateProgress();
+    showEmpty("Le lexique est vide", "Ajoute des mots dans le Google Sheets, puis recharge la page.", false);
     return;
   }
   deck = buildDeck();
+  if (deck.length === 0) {
+    showEmpty(
+      "Tout est maîtrisé !",
+      `Tu as réussi les ${words.length} mots au moins ${MASTERY_STREAK} fois d'affilée. Fais un tour complet pour ne pas les oublier.`,
+      true
+    );
+    return;
+  }
   roundSize = deck.length;
   index = 0;
   correct = 0;
@@ -635,23 +750,26 @@ function showWord() {
 
 function check(event) {
   event.preventDefault();
-  const typed = $("answer").value;
-  if (!typed.trim()) { $("answer").focus(); return; }
+  const typed = $("answer").value.trim();
+  if (!typed) { $("answer").focus(); return; }
 
   const card = deck[index];
   const { de, en } = card;
-  const ok = normalize(typed) === normalize(en);
+  const ok = isCorrect(typed, en);
   const firstTry = card.tag !== "retry";
+  if (!ok) recordWrongAnswer(card.id, typed);
   if (firstTry) {
     recordResult(card.id, ok);
     if (ok) {
       correct++;
     } else {
-      missed.push([de, en]);
+      missed.push({ de, en, typed });
       // Un mot raté revient une fois à la fin du tour.
       deck.push({ id: card.id, de, en, tag: "retry" });
     }
   }
+  renderLexique();
+  renderModes();
 
   const box = $("feedback");
   box.className = "feedback " + (ok ? "good" : "bad");
@@ -659,7 +777,13 @@ function check(event) {
     ? `<span class="title">Bravo !</span><span class="detail">C'est bien <span class="answer"></span>.</span>`
     : `<span class="title">Pas tout à fait</span><span class="detail">La bonne réponse : <span class="answer"></span></span><span class="detail">Tu as écrit : <em class="typed"></em></span>`;
   box.querySelector(".answer").textContent = en;
-  if (!ok) box.querySelector(".typed").textContent = typed.trim();
+  if (!ok) box.querySelector(".typed").textContent = typed;
+  if (ok && firstTry && wordStatus(card.id) === "mastered" && progress[card.id].streak === MASTERY_STREAK) {
+    const done = document.createElement("span");
+    done.className = "detail";
+    done.textContent = `${MASTERY_STREAK} fois juste d'affilée : ce mot est maîtrisé !`;
+    box.appendChild(done);
+  }
   if (!ok && firstTry) {
     const later = document.createElement("span");
     later.className = "detail";
@@ -671,9 +795,9 @@ function check(event) {
     listen.type = "button";
     listen.className = "listen";
     listen.innerHTML = SPEAKER_ICON + "<span>Réécouter</span>";
-    listen.addEventListener("click", () => speak(en, listen));
+    listen.addEventListener("click", () => speak(alternatives(en).join(", "), listen));
     box.appendChild(listen);
-    speak(en, listen); // le clic sur « Vérifier » autorise le son : on prononce tout de suite
+    speak(alternatives(en).join(", "), listen); // le clic sur « Vérifier » autorise le son : on prononce tout de suite
   }
   box.hidden = false;
 
@@ -697,11 +821,15 @@ function next() {
     : `Juste${correct > 1 ? "s" : ""} du premier coup. Ces mots reviendront en premier au prochain tour :`;
   const list = $("missed");
   list.innerHTML = "";
-  missed.forEach(([de, en]) => {
+  for (const m of missed) {
     const li = document.createElement("li");
-    li.textContent = `${de} → ${en}`;
+    li.append(`${m.de} → ${m.en} `);
+    const wrong = document.createElement("span");
+    wrong.className = "typed-wrong";
+    wrong.textContent = `(tu as écrit « ${m.typed} »)`;
+    li.append(wrong);
     list.appendChild(li);
-  });
+  }
   updateProgress();
   $("restart").focus();
 }
@@ -711,10 +839,63 @@ $("next").addEventListener("click", next);
 $("restart").addEventListener("click", startRound);
 
 // ---------- Lexique ----------
+function renderStats() {
+  const count = (status) => words.filter((w) => wordStatus(w.id) === status).length;
+  const stats = [
+    ["mastered", count("mastered"), "maîtrisés"],
+    ["", count("learning") + count("new"), "en cours ou nouveaux"],
+    ["review", count("review"), "à revoir"],
+  ];
+  const box = $("stats");
+  box.innerHTML = "";
+  for (const [cls, value, label] of stats) {
+    const div = document.createElement("div");
+    div.className = "stat " + cls;
+    const b = document.createElement("b");
+    b.textContent = value;
+    const span = document.createElement("span");
+    span.textContent = label;
+    div.append(b, span);
+    box.append(div);
+  }
+
+  // Les mots du lexique où elle s'est déjà trompée, les plus souvent ratés en premier.
+  const withMistakes = words
+    .filter((w) => progress[w.id] && progress[w.id].misses > 0)
+    .sort((a, b) => progress[b.id].misses - progress[a.id].misses);
+  $("mistakes-block").hidden = withMistakes.length === 0;
+  const list = $("mistakes");
+  list.innerHTML = "";
+  for (const w of withMistakes) {
+    const p = progress[w.id];
+    const li = document.createElement("li");
+    const word = document.createElement("span");
+    word.className = "m-word";
+    const en = document.createElement("span");
+    en.className = "m-en";
+    en.textContent = w.en;
+    word.append(`${w.de} → `, en);
+    li.append(word);
+    if (p.wrong && p.wrong.length) {
+      const typed = document.createElement("span");
+      typed.className = "m-typed";
+      typed.textContent = "Écrit : " + p.wrong.map((t) => `« ${t} »`).join(", ");
+      li.append(typed);
+    }
+    const meta = document.createElement("span");
+    meta.className = "m-count";
+    const status = wordStatus(w.id);
+    meta.textContent = `${p.misses} faute${p.misses > 1 ? "s" : ""}` + (status === "mastered" ? " · maintenant maîtrisé" : "");
+    li.append(meta);
+    list.appendChild(li);
+  }
+}
+
 function renderLexique() {
   $("lex-count").textContent = `${words.length} mot${words.length > 1 ? "s" : ""}`;
   $("lex-empty").hidden = words.length > 0;
   $("footer").textContent = loaded ? `${words.length} mot${words.length > 1 ? "s" : ""} dans le lexique` : "";
+  renderStats();
 
   const list = $("words");
   list.innerHTML = "";
@@ -725,7 +906,7 @@ function renderLexique() {
     de.className = "w-de";
     de.textContent = w.de;
     const status = wordStatus(w.id);
-    if (status !== "known") {
+    if (status !== "learning") {
       const chip = document.createElement("span");
       chip.className = "tag " + status;
       chip.textContent = TAG_LABELS[status];
@@ -735,6 +916,22 @@ function renderLexique() {
     en.className = "w-en";
     en.textContent = w.en;
     li.append(de, en);
+
+    if (status !== "new") {
+      const streak = Math.min(progress[w.id].streak, MASTERY_STREAK);
+      const dots = document.createElement("div");
+      dots.className = "dots";
+      dots.setAttribute("aria-label", `${streak} sur ${MASTERY_STREAK} bonnes réponses d'affilée`);
+      for (let i = 0; i < MASTERY_STREAK; i++) {
+        const dot = document.createElement("i");
+        if (i < streak) dot.className = "on";
+        dots.append(dot);
+      }
+      const label = document.createElement("span");
+      label.textContent = `${streak}/${MASTERY_STREAK} d'affilée`;
+      dots.append(label);
+      li.append(dots);
+    }
     list.appendChild(li);
   }
 }
@@ -744,6 +941,7 @@ async function init() {
   await loadWords();
   loaded = true;
   renderLexique();
+  renderModes();
   startRound();
 }
 
