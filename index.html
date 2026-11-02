@@ -261,6 +261,13 @@ footer { font-size: 0.85rem; color: var(--muted); text-align: center; }
 [hidden] { display: none !important; }
 body { margin: 0; }
 #source-notice { margin: 0; }
+.who { margin-top: -10px; color: var(--muted); font-size: 0.95rem; }
+.who #who-name { font-weight: 700; color: var(--ink); }
+.link { font: inherit; background: none; border: none; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; }
+.link:focus-visible { outline: 3px solid var(--highlight); outline-offset: 2px; }
+.picker { text-align: center; align-items: center; }
+.picker-buttons { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 320px; }
+.btn.secondary { background: transparent; color: var(--accent); border: 2px solid var(--accent); }
 </style>
 </head>
 <body>
@@ -271,7 +278,15 @@ body { margin: 0; }
     <div class="progress" id="progress"></div>
   </header>
 
-  <nav class="tabs" role="tablist" aria-label="Sections">
+  <div class="who" id="who" hidden><span id="who-name"></span> · <button type="button" class="link" id="who-change">changer de profil</button></div>
+
+  <section class="card picker" id="picker" hidden>
+    <h2>Qui s'entraîne ?</h2>
+    <div class="picker-buttons" id="picker-buttons"></div>
+    <p class="hint">Ce choix est mémorisé sur cet appareil.</p>
+  </section>
+
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Sections">
     <button class="tab" role="tab" id="tab-quiz" aria-selected="true" aria-controls="panel-quiz">S'entraîner</button>
     <button class="tab" role="tab" id="tab-lex" aria-selected="false" aria-controls="panel-lex">Lexique</button>
   </nav>
@@ -331,7 +346,7 @@ body { margin: 0; }
     <div class="card">
       <h2>Où j'en suis</h2>
       <div class="stats" id="stats"></div>
-      <p class="hint">Un mot est maîtrisé après 3 bonnes réponses d'affilée. Résultats enregistrés sur cet appareil.</p>
+      <p class="hint">Un mot est maîtrisé après 3 bonnes réponses d'affilée. <span id="sync-status"></span></p>
       <div id="mistakes-block" hidden>
         <h3 class="sub">Mes fautes</h3>
         <ul class="mistakes" id="mistakes"></ul>
@@ -611,20 +626,19 @@ function showQuizCard(which) {
 
 
 // ---------- Suivi des résultats ----------
-// Enregistré sur cet appareil. Pour chaque mot : { streak: bonnes réponses d'affilée,
+// Propre à chaque profil, gardé sur l'appareil et envoyé en ligne. Pour chaque mot : { streak: bonnes réponses d'affilée,
 // misses: erreurs au total, lastOk: la dernière réponse était-elle juste ?, wrong: dernières
 // réponses fausses }. Seul le premier essai de chaque tour compte dans le score du mot.
-const PROGRESS_KEY = "vokabeltrainer-progress";
 const MASTERY_STREAK = 3;
 const MAX_WRONG_KEPT = 5;
-let progress = readLocal(PROGRESS_KEY, {});
+let progress = {};
 
 function recordResult(wordId, ok) {
   const p = progress[wordId] || { streak: 0, misses: 0, lastOk: null, wrong: [] };
   progress[wordId] = ok
     ? { ...p, streak: p.streak + 1, lastOk: true }
     : { ...p, streak: 0, misses: p.misses + 1, lastOk: false };
-  writeLocal(PROGRESS_KEY, progress);
+  saveProgress(wordId);
 }
 
 // Garde les dernières fautes différentes, la plus récente en premier.
@@ -632,7 +646,7 @@ function recordWrongAnswer(wordId, typed) {
   const p = progress[wordId] || { streak: 0, misses: 0, lastOk: null, wrong: [] };
   const wrong = [typed, ...(p.wrong || []).filter((t) => normalize(t) !== normalize(typed))].slice(0, MAX_WRONG_KEPT);
   progress[wordId] = { ...p, wrong };
-  writeLocal(PROGRESS_KEY, progress);
+  saveProgress(wordId);
 }
 
 // « review » = raté la dernière fois, « new » = jamais vu, « learning » = réussi mais pas encore
@@ -936,13 +950,195 @@ function renderLexique() {
   }
 }
 
+// ---------- Profils et synchronisation ----------
+// Ajouter une élève : l'ajouter ici ET dans la liste PROFILES du script Google (apps-script/Code.gs).
+const PROFILES = [
+  { id: "flora", name: "Flora" },
+  { id: "karlotta", name: "Karlotta" },
+];
+// Adresse de l'application Web Google Apps Script. Vide : la progression reste sur chaque appareil.
+const SYNC_URL = "https://script.google.com/macros/s/AKfycbz_ve9EgyYu-Bjjq--IUZY4PysBxTu0j34aO-JsQElMPsJ_bHHmJ1xGRravyEd_EzPRCA/exec";
+const PROFILE_KEY = "vokabeltrainer-profile";
+// Progression enregistrée avant l'arrivée des profils : elle appartient à Flora.
+const LEGACY_PROGRESS_KEY = "vokabeltrainer-progress";
+const LEGACY_OWNER = "flora";
+
+let profile = null;     // id du profil en cours
+let unsent = {};        // mots modifiés pas encore envoyés en ligne : { id: true }
+let syncTimer = null;
+let pushing = false;
+
+const progressKey = () => "vokabeltrainer-progress-" + profile;
+const unsentKey = () => "vokabeltrainer-unsent-" + profile;
+const profileName = (id) => (PROFILES.find((p) => p.id === id) || { name: id }).name;
+
+function profileFromHash() {
+  const id = decodeURIComponent(location.hash.slice(1)).toLowerCase();
+  return PROFILES.some((p) => p.id === id) ? id : null;
+}
+
+function saveProgress(wordId) {
+  writeLocal(progressKey(), progress);
+  unsent[wordId] = true;
+  writeLocal(unsentKey(), unsent);
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => pushProgress(), 1500);
+}
+
+function setSyncStatus(state) {
+  const texts = {
+    local: "Résultats enregistrés sur cet appareil.",
+    ok: "Résultats enregistrés en ligne : ils te suivent sur tous tes appareils.",
+    pending: "Enregistrement en cours…",
+    offline: "Pas de connexion : tes résultats sont gardés sur cet appareil et seront envoyés plus tard.",
+  };
+  $("sync-status").textContent = texts[SYNC_URL ? state : "local"];
+}
+
+// Envoie les mots modifiés. Le corps part en texte brut, ce que le script Google accepte
+// sans demande d'autorisation préalable du navigateur.
+async function pushProgress(keepalive = false) {
+  if (!SYNC_URL || !profile || pushing) return;
+  const ids = Object.keys(unsent);
+  if (ids.length === 0) { setSyncStatus("ok"); return; }
+
+  pushing = true;
+  setSyncStatus("pending");
+  const sentProfile = profile;
+  const sent = {};
+  const payload = { profile, words: {} };
+  for (const id of ids) {
+    const w = words.find((x) => x.id === id);
+    sent[id] = JSON.stringify(progress[id]);
+    payload.words[id] = { ...progress[id], de: w ? w.de : id, en: w ? w.en : "" };
+  }
+  try {
+    const res = await fetch(SYNC_URL, { method: "POST", body: JSON.stringify(payload), keepalive });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Échec de l'enregistrement");
+    if (profile !== sentProfile) return;
+    // Un mot modifié pendant l'envoi reste à envoyer.
+    for (const id of ids) if (JSON.stringify(progress[id]) === sent[id]) delete unsent[id];
+    writeLocal(unsentKey(), unsent);
+    setSyncStatus(Object.keys(unsent).length ? "pending" : "ok");
+    if (Object.keys(unsent).length) syncTimer = setTimeout(() => pushProgress(), 1500);
+  } catch (e) {
+    if (profile === sentProfile) setSyncStatus("offline");
+  } finally {
+    pushing = false;
+  }
+}
+
+// Récupère la progression en ligne. Un mot modifié ici et pas encore envoyé garde la version locale.
+async function pullProgress() {
+  if (!SYNC_URL || !profile) { setSyncStatus("local"); return; }
+  const asked = profile;
+  try {
+    const res = await fetch(SYNC_URL + "?profile=" + encodeURIComponent(asked), { cache: "no-store" });
+    const data = await res.json();
+    if (!data.progress) throw new Error(data.error || "Réponse inattendue");
+    if (profile !== asked) return;
+    for (const [id, p] of Object.entries(data.progress)) if (!unsent[id]) progress[id] = p;
+    writeLocal(progressKey(), progress);
+    setSyncStatus(Object.keys(unsent).length ? "pending" : "ok");
+  } catch (e) {
+    if (profile === asked) setSyncStatus("offline");
+  }
+}
+
+function migrateLegacyProgress() {
+  if (profile !== LEGACY_OWNER) return;
+  const legacy = readLocal(LEGACY_PROGRESS_KEY, null);
+  if (!legacy) return;
+  for (const [id, p] of Object.entries(legacy)) {
+    if (progress[id]) continue;
+    progress[id] = p;
+    unsent[id] = true;
+  }
+  writeLocal(progressKey(), progress);
+  writeLocal(unsentKey(), unsent);
+  try { localStorage.removeItem(LEGACY_PROGRESS_KEY); } catch (e) { /* stockage indisponible */ }
+}
+
+function showPicker(visible) {
+  $("picker").hidden = !visible;
+  $("tabs").hidden = visible;
+  $("who").hidden = visible || !profile;
+  if (visible) {
+    $("panel-quiz").hidden = true;
+    $("panel-lex").hidden = true;
+    $("progress").textContent = "";
+    $("picker-buttons").querySelector("button")?.focus();
+  }
+}
+
+function renderPicker() {
+  const box = $("picker-buttons");
+  box.innerHTML = "";
+  for (const p of PROFILES) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn" + (p.id === profile ? "" : " secondary");
+    button.textContent = p.name;
+    button.addEventListener("click", () => selectProfile(p.id));
+    box.append(button);
+  }
+}
+
+async function selectProfile(id) {
+  if (profile) await pushProgress(true);
+  clearTimeout(syncTimer);
+  profile = id;
+  writeLocal(PROFILE_KEY, id);
+  progress = readLocal(progressKey(), {});
+  unsent = readLocal(unsentKey(), {});
+  migrateLegacyProgress();
+
+  $("who-name").textContent = profileName(id);
+  renderPicker();
+  showPicker(false);
+  quizState = "loading";
+  showTab("quiz");
+  showQuizCard("loading");
+  updateProgress();
+
+  // On n'attend pas plus de 5 secondes une connexion lente : l'entraînement démarre avec ce qu'on a.
+  await Promise.race([pullProgress(), new Promise((resolve) => setTimeout(resolve, 5000))]);
+  if (profile !== id) return;
+  pushProgress();
+  renderLexique();
+  renderModes();
+  startRound();
+}
+
+$("who-change").addEventListener("click", () => { renderPicker(); showPicker(true); });
+
+window.addEventListener("hashchange", () => {
+  const id = profileFromHash();
+  if (id && id !== profile) selectProfile(id);
+});
+
+// Envoie avant que l'appli passe en arrière-plan, et récupère ce qui a été fait ailleurs au retour.
+document.addEventListener("visibilitychange", async () => {
+  if (!profile) return;
+  if (document.visibilityState === "hidden") { pushProgress(true); return; }
+  await pullProgress();
+  renderLexique();
+  renderModes();
+});
+
 // ---------- Démarrage ----------
 async function init() {
   await loadWords();
   loaded = true;
-  renderLexique();
-  renderModes();
-  startRound();
+  const saved = readLocal(PROFILE_KEY, null);
+  const id = profileFromHash() || (PROFILES.some((p) => p.id === saved) ? saved : null);
+  if (id) {
+    await selectProfile(id);
+    return;
+  }
+  renderPicker();
+  showPicker(true);
 }
 
 init();
