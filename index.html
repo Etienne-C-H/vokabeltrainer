@@ -516,13 +516,33 @@ $("reload").addEventListener("click", reload);
 
 // ---------- Entraînement ----------
 
-// Compare sans tenir compte des majuscules, de la ponctuation, des espaces en trop
-// ni de l'article au début (« ball » = « the ball »).
+// Formes courtes ramenées à la forme longue (« isn't » = « is not »). Le « 's » n'est développé
+// qu'après un pronom ou un mot interrogatif : ailleurs c'est un possessif (« Tom's »).
+// « 'd » est toujours lu « would », même s'il peut aussi valoir « had ».
+const CONTRACTIONS = [
+  [/\bwon't\b/g, "will not"],
+  [/\bcan't\b/g, "can not"],
+  [/\bcannot\b/g, "can not"],
+  [/\bshan't\b/g, "shall not"],
+  [/n't\b/g, " not"],
+  [/'m\b/g, " am"],
+  [/'re\b/g, " are"],
+  [/'ve\b/g, " have"],
+  [/'ll\b/g, " will"],
+  [/'d\b/g, " would"],
+  [/\blet's\b/g, "let us"],
+  [/\b(it|he|she|that|what|where|who|there|here|how)'s\b/g, "$1 is"],
+];
+
+// Compare sans tenir compte des majuscules, de la ponctuation, des espaces en trop,
+// de l'article au début (« ball » = « the ball ») ni des formes courtes.
 function normalize(text) {
-  return text
+  let result = text
     .toLowerCase()
-    .replace(/[’`]/g, "'")
-    .replace(/[^a-z0-9' ]/g, " ")
+    .replace(/[’‘`´]/g, "'")
+    .replace(/[^a-z0-9' ]/g, " ");
+  for (const [pattern, replacement] of CONTRACTIONS) result = result.replace(pattern, replacement);
+  return result
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^(the|a|an) /, "");
