@@ -165,7 +165,7 @@ input[type="text"]:disabled { opacity: 0.75; }
 
 .modes { display: flex; gap: 8px; flex-wrap: wrap; }
 .mode {
-  flex: 1 1 0; min-width: 0; font-family: var(--font-body); font-weight: 700; font-size: 0.95rem;
+  flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; font-family: var(--font-body); font-weight: 700; font-size: 0.95rem;
   background: var(--card); color: var(--muted); border: 2px solid var(--line);
   border-radius: 999px; padding: 8px 14px; cursor: pointer; min-height: 44px;
 }
@@ -228,6 +228,7 @@ select:focus { outline: none; border-color: var(--accent); }
 }
 .words li:first-child { border-top: none; }
 .words .w-de { font-weight: 700; overflow-wrap: anywhere; }
+.words .w-test { display: block; font-weight: 400; font-size: 0.8rem; color: var(--muted); }
 .words .w-en { color: var(--muted); overflow-wrap: anywhere; }
 .del {
   font: inherit; font-size: 0.9rem; border: 1px solid var(--line); background: transparent; color: var(--muted);
@@ -295,9 +296,13 @@ body { margin: 0; }
 
   <!-- Onglet « S'entraîner » -->
   <section id="panel-quiz" role="tabpanel" aria-labelledby="tab-quiz">
-    <div class="modes" role="radiogroup" aria-label="Type de tour">
-      <button class="mode" type="button" role="radio" id="mode-all" aria-checked="true">Tout le lexique <span class="mode-count" id="count-all"></span></button>
-      <button class="mode" type="button" role="radio" id="mode-review" aria-checked="false">Mots à revoir <span class="mode-count" id="count-review"></span></button>
+    <div class="modes" role="radiogroup" aria-label="Quels mots">
+      <button class="mode" type="button" role="radio" id="scope-all" aria-checked="true">Tout le lexique <span class="mode-count" id="count-scope-all"></span></button>
+      <button class="mode" type="button" role="radio" id="scope-test" aria-checked="false" hidden><span id="scope-test-name"></span> <span class="mode-count" id="count-scope-test"></span></button>
+    </div>
+    <div class="modes" role="radiogroup" aria-label="Lesquels">
+      <button class="mode" type="button" role="radio" id="filter-all" aria-checked="true">Tous les mots <span class="mode-count" id="count-filter-all"></span></button>
+      <button class="mode" type="button" role="radio" id="filter-mistakes" aria-checked="false">Mes erreurs <span class="mode-count" id="count-filter-mistakes"></span></button>
     </div>
 
     <div class="card empty" id="loading">
@@ -307,7 +312,7 @@ body { margin: 0; }
     <div class="card empty" id="empty" hidden>
       <h2 id="empty-title">Le lexique est vide</h2>
       <p id="empty-text">Ajoute des mots dans le Google Sheets pour commencer.</p>
-      <button class="btn" type="button" id="empty-action" hidden>Faire un tour complet</button>
+      <button class="btn" type="button" id="empty-action" hidden>Faire un tour avec tous les mots</button>
     </div>
 
     <main class="card" id="quiz" hidden>
@@ -446,19 +451,20 @@ function parseCsv(text) {
   return rows;
 }
 
-// Colonne A = allemand, colonne B = anglais, la première ligne contient les titres.
+// Colonne A = allemand, colonne B = anglais, colonne C = test auquel le mot appartient (facultative),
+// la première ligne contient les titres. Un mot repris plus bas pour un nouveau test passe dans ce test :
+// « row » garde la position de sa dernière apparition.
 function rowsToWords(rows) {
-  const seen = new Set();
-  const list = [];
-  for (const [de = "", en = ""] of rows.slice(1)) {
-    const d = de.trim(), e = en.trim();
-    if (!d || !e) continue;
+  const byId = new Map();
+  rows.slice(1).forEach(([de = "", en = "", test = ""], row) => {
+    const d = de.trim(), e = en.trim(), t = test.trim();
+    if (!d || !e) return;
     const id = d.toLowerCase();
-    if (seen.has(id)) continue;
-    seen.add(id);
-    list.push({ id, de: d, en: e });
-  }
-  return list;
+    const existing = byId.get(id);
+    if (!existing) { byId.set(id, { id, de: d, en: e, test: t, row }); return; }
+    if (t) Object.assign(existing, { test: t, row });
+  });
+  return [...byId.values()];
 }
 
 function setNotice(kind, text) {
@@ -682,32 +688,80 @@ function isMastered(word) {
   return wordStatus(word.id) === "mastered";
 }
 
-// ---------- Type de tour ----------
-const MODE_KEY = "vokabeltrainer-mode";
-let mode = readLocal(MODE_KEY, "all") === "review" ? "review" : "all"; // all | review
+// Un mot déjà raté au moins une fois et pas encore réussi ${MASTERY_STREAK} fois d'affilée depuis.
+function isMistake(word) {
+  const p = progress[word.id];
+  return Boolean(p && p.misses > 0) && !isMastered(word);
+}
 
-function setMode(next) {
-  mode = next;
-  writeLocal(MODE_KEY, mode);
+// ---------- Type de tour ----------
+// Deux choix qui se combinent : quels mots (tout le lexique ou le prochain test) et lesquels
+// (tous, ou seulement ses erreurs).
+const SCOPE_KEY = "vokabeltrainer-scope";
+const FILTER_KEY = "vokabeltrainer-filter";
+let scope = readLocal(SCOPE_KEY, "all") === "test" ? "test" : "all";             // all | test
+let filter = readLocal(FILTER_KEY, "all") === "mistakes" ? "mistakes" : "all";  // all | mistakes
+
+// Le prochain test est celui des mots ajoutés en dernier dans le tableau.
+function currentTest() {
+  const tagged = words.filter((w) => w.test);
+  if (tagged.length === 0) return "";
+  return tagged.reduce((last, w) => ((w.row ?? -1) > (last.row ?? -1) ? w : last)).test;
+}
+
+function activeScope() {
+  return scope === "test" && currentTest() ? "test" : "all";
+}
+
+function scopedWords() {
+  if (activeScope() === "all") return words;
+  const test = currentTest();
+  return words.filter((w) => w.test === test);
+}
+
+function roundLabel() {
+  const base = activeScope() === "test" ? currentTest() : "Tout le lexique";
+  return filter === "mistakes" ? base + " · erreurs" : base;
+}
+
+function setScope(next) {
+  scope = next;
+  writeLocal(SCOPE_KEY, scope);
+  renderModes();
+  startRound();
+}
+
+function setFilter(next) {
+  filter = next;
+  writeLocal(FILTER_KEY, filter);
   renderModes();
   startRound();
 }
 
 function renderModes() {
-  $("mode-all").setAttribute("aria-checked", String(mode === "all"));
-  $("mode-review").setAttribute("aria-checked", String(mode === "review"));
-  $("count-all").textContent = words.length;
-  $("count-review").textContent = words.filter((w) => !isMastered(w)).length;
+  const test = currentTest();
+  const pool = scopedWords();
+  $("scope-test").hidden = !test;
+  $("scope-test-name").textContent = test ? "Prochain test : " + test : "";
+  $("scope-all").setAttribute("aria-checked", String(activeScope() === "all"));
+  $("scope-test").setAttribute("aria-checked", String(activeScope() === "test"));
+  $("filter-all").setAttribute("aria-checked", String(filter === "all"));
+  $("filter-mistakes").setAttribute("aria-checked", String(filter === "mistakes"));
+  $("count-scope-all").textContent = words.length;
+  $("count-scope-test").textContent = words.filter((w) => w.test === test).length;
+  $("count-filter-all").textContent = pool.length;
+  $("count-filter-mistakes").textContent = pool.filter(isMistake).length;
 }
-$("mode-all").addEventListener("click", () => setMode("all"));
-$("mode-review").addEventListener("click", () => setMode("review"));
-$("empty-action").addEventListener("click", () => setMode("all"));
+$("scope-all").addEventListener("click", () => setScope("all"));
+$("scope-test").addEventListener("click", () => setScope("test"));
+$("filter-all").addEventListener("click", () => setFilter("all"));
+$("filter-mistakes").addEventListener("click", () => setFilter("mistakes"));
+$("empty-action").addEventListener("click", () => setFilter("all"));
 
 // L'ordre d'un tour : d'abord les mots ratés la dernière fois, puis les nouveaux, puis ceux en cours
 // d'apprentissage (les moins sûrs en premier), puis les mots maîtrisés. Mélangé dans chaque groupe.
-// Le tour « Mots à revoir » laisse de côté les mots maîtrisés.
 function buildDeck() {
-  const pool = mode === "review" ? words.filter((w) => !isMastered(w)) : words;
+  const pool = filter === "mistakes" ? scopedWords().filter(isMistake) : scopedWords();
   const group = (status) => shuffle(pool.filter((w) => wordStatus(w.id) === status));
   const learning = group("learning").sort((a, b) => progress[a.id].streak - progress[b.id].streak);
   const toCard = (tag) => (w) => ({ id: w.id, de: w.de, en: w.en, tag });
@@ -748,9 +802,10 @@ function startRound() {
   }
   deck = buildDeck();
   if (deck.length === 0) {
+    const where = activeScope() === "test" ? ` sur les mots du ${currentTest()}` : "";
     showEmpty(
-      "Tout est maîtrisé !",
-      `Tu as réussi les ${words.length} mots au moins ${MASTERY_STREAK} fois d'affilée. Fais un tour complet pour ne pas les oublier.`,
+      "Aucune erreur à revoir !",
+      `Tu n'as pas d'erreur en cours${where}. Fais un tour avec tous les mots pour ne pas les oublier.`,
       true
     );
     return;
@@ -948,6 +1003,12 @@ function renderLexique() {
       chip.textContent = TAG_LABELS[status];
       de.append(chip);
     }
+    if (w.test) {
+      const test = document.createElement("span");
+      test.className = "w-test";
+      test.textContent = w.test;
+      de.append(test);
+    }
     const en = document.createElement("span");
     en.className = "w-en";
     en.textContent = w.en;
@@ -1036,7 +1097,8 @@ function currentSession() {
     session = { id, start: now, end: now, answers: 0, correct: 0, rounds: 0, modes: [], device: deviceLabel() };
   }
   session.end = now;
-  if (!session.modes.includes(mode)) session.modes.push(mode);
+  const label = roundLabel();
+  if (!session.modes.includes(label)) session.modes.push(label);
   return session;
 }
 
